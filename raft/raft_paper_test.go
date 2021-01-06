@@ -61,6 +61,7 @@ func testUpdateTermFromMessage(t *testing.T, state StateType) {
 		r.becomeLeader()
 	}
 
+	// Term 大于当前的 Term (=0)
 	r.Step(pb.Message{MsgType: pb.MessageType_MsgAppend, Term: 2})
 
 	if r.Term != 2 {
@@ -95,6 +96,7 @@ func TestLeaderBcastBeat2AA(t *testing.T) {
 	r.readMessages() // clear message
 
 	for i := 0; i < hi; i++ {
+		// 每 hi 发送心跳
 		r.tick()
 	}
 
@@ -194,7 +196,6 @@ func TestLeaderElectionInOneRoundRPC2AA(t *testing.T) {
 		for id, vote := range tt.votes {
 			r.Step(pb.Message{From: id, To: 1, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: !vote})
 		}
-
 		if r.State != tt.state {
 			t.Errorf("#%d: state = %s, want %s", i, r.State, tt.state)
 		}

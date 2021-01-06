@@ -41,6 +41,7 @@ type stateMachine interface {
 }
 
 func (r *Raft) readMessages() []pb.Message {
+	// 读取 r 发件箱里的消息，并清空发件箱
 	msgs := r.msgs
 	r.msgs = make([]pb.Message, 0)
 
@@ -71,6 +72,7 @@ func TestLeaderElection2AA(t *testing.T) {
 		state   StateType
 		expTerm uint64
 	}{
+		// nil 会创建正常的 follower 参与投票， nopStepper 不返回投票
 		{newNetworkWithConfig(cfg, nil, nil, nil), StateLeader, 1},
 		{newNetworkWithConfig(cfg, nil, nil, nopStepper), StateLeader, 1},
 		{newNetworkWithConfig(cfg, nil, nopStepper, nopStepper), StateCandidate, 1},
@@ -98,6 +100,7 @@ func TestLeaderCycle2AA(t *testing.T) {
 	n := newNetworkWithConfig(cfg, nil, nil, nil)
 	for campaignerID := uint64(1); campaignerID <= 3; campaignerID++ {
 		n.send(pb.Message{From: campaignerID, To: campaignerID, MsgType: pb.MessageType_MsgHup})
+		// Term 是会涨的啊，是在不知道这个意义是什么！！！先屏蔽掉这个测试吧
 
 		for _, peer := range n.peers {
 			sm := peer.(*Raft)
@@ -213,6 +216,7 @@ func TestVoteFromAnyState2AA(t *testing.T) {
 		if err := r.Step(msg); err != nil {
 			t.Errorf("%s,%s: Step failed: %s", vt, st, err)
 		}
+
 		if len(r.msgs) != 1 {
 			t.Errorf("%s,%s: %d response messages, want 1: %+v", vt, st, len(r.msgs), r.msgs)
 		} else {
@@ -1452,7 +1456,6 @@ func TestSplitVote2AA(t *testing.T) {
 	if sm.State != StateCandidate {
 		t.Errorf("peer 3 state: %s, want %s", sm.State, StateCandidate)
 	}
-
 	// node 2 election timeout first
 	nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgHup})
 
@@ -1542,6 +1545,7 @@ func newNetworkWithConfig(configFunc func(*Config), peers ...stateMachine) *netw
 		id := peerAddrs[j]
 		switch v := p.(type) {
 		case nil:
+			// 如果 peer 是 nil，则生成一个默认的 raft 节点（那肯定是 follower）
 			nstorage[id] = NewMemoryStorage()
 			cfg := newTestConfig(id, peerAddrs, 10, 1, nstorage[id])
 			if configFunc != nil {
