@@ -100,8 +100,6 @@ func TestLeaderCycle2AA(t *testing.T) {
 	n := newNetworkWithConfig(cfg, nil, nil, nil)
 	for campaignerID := uint64(1); campaignerID <= 3; campaignerID++ {
 		n.send(pb.Message{From: campaignerID, To: campaignerID, MsgType: pb.MessageType_MsgHup})
-		// Term 是会涨的啊，是在不知道这个意义是什么！！！先屏蔽掉这个测试吧
-
 		for _, peer := range n.peers {
 			sm := peer.(*Raft)
 			if sm.id == campaignerID && sm.State != StateLeader {

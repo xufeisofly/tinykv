@@ -30,19 +30,19 @@ type RaftLog struct {
 
 	// committed is the highest log position that is known to be in
 	// stable storage on a quorum of nodes.
-	// 要被应用到状态机里的，即已经 WAL 的
+	// 已经写入大多数 peer 的 storage 里的，WAL
 	committed uint64
 
 	// applied is the highest log position that the application has
 	// been instructed to apply to its state machine.
 	// Invariant: applied <= committed
-	// 已经申请应用到状态机里的
+	// 已经应用到状态机里的
 	applied uint64
 
 	// log entries with index <= stabled are persisted to storage.
 	// It is used to record the logs that are not persisted by storage yet.
 	// Everytime handling `Ready`, the unstabled logs will be included.
-	// 已经成功写入状态机里的
+	// 已经写入自己 storage 里的， WAL
 	stabled uint64
 
 	// all entries that have not yet compact.
@@ -83,13 +83,12 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 // nextEnts returns all the committed but not applied entries
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
-	return nil
+	return l.entries[l.applied+1 : l.committed+1]
 }
 
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	// return l.offset + uint64(len(l.entries)) - 1
 	ret, _ := l.storage.LastIndex()
 	return ret
 }
