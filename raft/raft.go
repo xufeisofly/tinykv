@@ -199,7 +199,26 @@ func newRaft(c *Config) *Raft {
 // sendAppend sends an append RPC with new entries (if any) and the
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
-	// Your Code Here (2A).
+	// // Your Code Here (2A).
+	// pr := r.Prs[to]
+	// term, errt := r.RaftLog.Term(pr.Next - 1)
+	// ents, erre := r.RaftLog.storage.Entries(pr.Next, math.MaxUint64)
+	// if len(ents) == 0 {
+	// 	return false
+	// }
+
+	// if errt != nil || erre != nil {
+	// 	return false
+	// }
+
+	// m := pb.Message{
+	// 	MsgType: pb.MessageType_MsgAppend,
+	// 	To:      to,
+	// 	Term:    term,
+	// 	Index:   pr.Next - 1,
+	// }
+
+	// r.send(m)
 	return false
 }
 

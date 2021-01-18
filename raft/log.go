@@ -14,7 +14,11 @@
 
 package raft
 
-import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+import (
+	"fmt"
+
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+)
 
 // RaftLog manage the log entries, its struct look like:
 //
@@ -30,13 +34,13 @@ type RaftLog struct {
 
 	// committed is the highest log position that is known to be in
 	// stable storage on a quorum of nodes.
-	// 已经写入大多数 peer 的 storage 里的，WAL
+	// 已经写入大多数 peer 的 storage 里，只写了 WAL
 	committed uint64
 
 	// applied is the highest log position that the application has
 	// been instructed to apply to its state machine.
 	// Invariant: applied <= committed
-	// 已经应用到状态机里的
+	// 已经应用到 storage 状态机里的
 	applied uint64
 
 	// log entries with index <= stabled are persisted to storage.
@@ -46,6 +50,7 @@ type RaftLog struct {
 	stabled uint64
 
 	// all entries that have not yet compact.
+	// 所有 unstabled 的 entries
 	entries []pb.Entry
 
 	// the incoming unstable snapshot, if any.
@@ -66,6 +71,10 @@ func newLog(storage Storage) *RaftLog {
 	}
 }
 
+func (l *RaftLog) String() string {
+	return fmt.Sprintf("applied=%d, committed=%d, unstable.offset=%d, len(unstable.Entries)=%d", l.applied, l.committed, l.stabled, len(l.entries))
+}
+
 // We need to compact the log entries in some point of time like
 // storage compact stabled log entries prevent the log entries
 // grow unlimitedly in memory
@@ -77,7 +86,7 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	return l.entries[l.stabled+1:]
+	return l.entries
 }
 
 // nextEnts returns all the committed but not applied entries
@@ -89,13 +98,75 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
-	ret, _ := l.storage.LastIndex()
+	if i, ok := l.unstableLastIndex(); ok {
+		return i
+	}
+	ret, err := l.storage.LastIndex() // 按理说 l.storage.LastIndex() == l.stable
+	if err != nil {
+		panic(err)
+	}
 	return ret
+}
+
+func (l *RaftLog) unstableLastIndex() (uint64, bool) {
+	if unstableL := len(l.entries); unstableL != 0 {
+		return l.stabled + uint64(unstableL), true
+	}
+	if l.pendingSnapshot != nil {
+		return l.pendingSnapshot.Metadata.Index, true
+	}
+	return 0, false
+}
+
+func (l *RaftLog) firstIndex() uint64 {
+	if l.pendingSnapshot != nil {
+		return l.pendingSnapshot.Metadata.Index + 1
+	}
+	index, err := l.storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+	return index
+}
+
+func (l *RaftLog) snapshot() (pb.Snapshot, error) {
+	if l.pendingSnapshot != nil {
+		return *l.pendingSnapshot, nil
+	}
+	return l.storage.Snapshot()
+}
+
+func (l *RaftLog) unstableTerm(i uint64) (uint64, bool) {
+	// 如果 i 已经写入 storage，然而发现有 pendingSnapshot 且 index 等于 i，那么以 pendingSnapshot 为准
+	if i <= l.stabled {
+		if l.pendingSnapshot != nil && l.pendingSnapshot.Metadata.Index == i {
+			return l.pendingSnapshot.Metadata.Term, true
+		}
+		return 0, false
+	}
+
+	last, ok := l.unstableLastIndex()
+	if !ok {
+		return 0, false
+	}
+	if i > last {
+		return 0, false
+	}
+
+	return l.entries[i-l.stabled-1].Term, true
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
+	if i < l.firstIndex()-1 || i > l.LastIndex() {
+		return 0, nil
+	}
+
+	if t, ok := l.unstableTerm(i); ok {
+		return t, nil
+	}
+
 	return l.storage.Term(i)
 }
 
