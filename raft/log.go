@@ -16,6 +16,7 @@ package raft
 
 import (
 	"fmt"
+	"log"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
@@ -177,6 +178,61 @@ func (l *RaftLog) LastTerm() uint64 {
 
 func (l *RaftLog) isUpToDate(lasti, term uint64) bool {
 	return term > l.LastTerm() || (term == l.LastTerm() && lasti >= l.LastIndex())
+}
+
+// Entries log 的 Entries slice，包括 stabled 和 unstabled
+func (l *RaftLog) Entries(i uint64) ([]pb.Entry, error) {
+	if i > l.LastIndex() {
+		return nil, nil
+	}
+	return l.slice(i, l.LastIndex()+1)
+}
+
+func (l *RaftLog) slice(lo, hi uint64) ([]pb.Entry, error) {
+	// err := l.mustCheckOutOfBounds(lo, hi)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	if lo == hi {
+		return nil, nil
+	}
+
+	var ents []pb.Entry
+	if lo < l.stabled+1 {
+		storedEnts, err := l.storage.Entries(lo, min(hi, l.stabled+1))
+		if err == ErrCompacted {
+			return nil, err
+		} else if err == ErrUnavailable {
+			log.Panicf("entries[%d:%d] is unavailable from storage", lo, min(hi, l.stabled+1))
+		} else if err != nil {
+			panic(err)
+		}
+
+		// 检查是否只涉及 storage
+		if uint64(len(storedEnts)) < min(hi, l.stabled+1)-lo {
+			return storedEnts, nil
+		}
+
+		ents = storedEnts
+	}
+	if hi > l.stabled+1 {
+		unstable := l.unstableSlice(max(lo, l.stabled+1), hi)
+		if len(ents) > 0 {
+			combined := make([]pb.Entry, len(ents)+len(unstable))
+			n := copy(combined, ents)
+			copy(combined[n:], unstable)
+			ents = combined
+		} else {
+			ents = unstable
+		}
+	}
+
+	// return limitSize(ents, maxSize), nil
+	return ents, nil
+}
+
+func (l *RaftLog) unstableSlice(lo, hi uint64) []pb.Entry {
+	return l.entries[lo-l.stabled-1 : hi-l.stabled-1]
 }
 
 func (l *RaftLog) truncateAndAppend(ents []pb.Entry) {

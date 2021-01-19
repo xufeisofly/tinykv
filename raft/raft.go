@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -200,26 +201,32 @@ func newRaft(c *Config) *Raft {
 // current commit index to the given peer. Returns true if a message was sent.
 func (r *Raft) sendAppend(to uint64) bool {
 	// // Your Code Here (2A).
-	// pr := r.Prs[to]
-	// term, errt := r.RaftLog.Term(pr.Next - 1)
-	// ents, erre := r.RaftLog.storage.Entries(pr.Next, math.MaxUint64)
-	// if len(ents) == 0 {
-	// 	return false
-	// }
+	pr := r.Prs[to]
+	term, errt := r.RaftLog.Term(pr.Next - 1)
+	ents, erre := r.RaftLog.Entries(pr.Next)
 
-	// if errt != nil || erre != nil {
-	// 	return false
-	// }
+	if errt != nil || erre != nil {
+		return false
+	}
 
-	// m := pb.Message{
-	// 	MsgType: pb.MessageType_MsgAppend,
-	// 	To:      to,
-	// 	Term:    term,
-	// 	Index:   pr.Next - 1,
-	// }
+	var entPtrs []*pb.Entry
+	for _, ent := range ents {
+		entPtrs = append(entPtrs, &ent)
+	}
 
-	// r.send(m)
-	return false
+	m := pb.Message{
+		MsgType: pb.MessageType_MsgAppend,
+		To:      to,
+		Term:    term,
+		Index:   pr.Next - 1,
+		LogTerm: term,
+		Commit:  r.RaftLog.committed,
+		Entries: entPtrs,
+	}
+
+	r.send(m)
+	fmt.Println("----->msg", m)
+	return true
 }
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
@@ -346,8 +353,16 @@ func (r *Raft) becomeLeader() {
 	if r.State == StateFollower {
 		panic("cannot transit from follower to leader")
 	}
+
+	r.reset()
 	r.State = StateLeader
 	r.Lead = r.id
+
+	// 变成 leader 后先 append 一个空 entry??
+	// emptyEnt := pb.Entry{Data: nil}
+	// if !r.appendEntry(emptyEnt) {
+	// 	panic("empty entry was dropped")
+	// }
 }
 
 // startElection 开始新一轮选举
@@ -375,6 +390,12 @@ func (r *Raft) reset() {
 	r.heartbeatElapsed = 0
 	r.resetRandomizedElectionTimeout()
 	r.Lead = None
+	for pr, _ := range r.Prs {
+		r.Prs[pr] = &Progress{
+			Match: 0,
+			Next:  r.RaftLog.LastIndex() + 1,
+		}
+	}
 }
 
 func (r *Raft) resetRandomizedElectionTimeout() {
@@ -437,10 +458,14 @@ func (r *Raft) eTermLeaderStep(m pb.Message) {
 		// 检查法定人数并 apply log
 	case pb.MessageType_MsgPropose: // leader 写自己 log 的消息
 		var entries []pb.Entry
+		fmt.Println("-=-=-=->", m.Entries)
 		for _, entry := range m.Entries {
 			entries = append(entries, *entry)
 		}
 		r.appendEntry(entries...)
+		// for pr, _ := range r.Prs {
+		// 	r.sendAppend(pr)
+		// }
 	case pb.MessageType_MsgRequestVote:
 		// 如果 term 一样，那 leader 是不会给其他节点投票的
 		r.sendVoteResponse(m.From, true)
